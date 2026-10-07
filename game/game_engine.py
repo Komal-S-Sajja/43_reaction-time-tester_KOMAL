@@ -1,7 +1,7 @@
+import os
 import pygame
 from .round import Round
 
-# Game Engine
 
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
@@ -26,7 +26,10 @@ class GameEngine:
         self.min_wait_ms = min_wait_ms
         self.max_wait_ms = max_wait_ms
 
-        self.round = Round(self.min_wait_ms, self.max_wait_ms)
+        self.round = Round(
+            self.min_wait_ms,
+            self.max_wait_ms,
+        )
         self.reaction_times = []
 
         self.result_shown_at = None
@@ -39,6 +42,42 @@ class GameEngine:
         self.difficulty_selection = False
         self.finished = False
 
+        # Sound files are stored in the project's sounds/ folder.
+        # game_engine.py is inside game/, so go one level up to
+        # reach the project root.
+        sounds_dir = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "sounds",
+        )
+
+        # Load each sound once when the GameEngine is created.
+        self.go_sound = self._load_sound(
+            os.path.join(sounds_dir, "go.wav")
+        )
+
+        self.false_start_sound = self._load_sound(
+            os.path.join(sounds_dir, "false_start.wav")
+        )
+
+        self.game_over_sound = self._load_sound(
+            os.path.join(sounds_dir, "game_over.wav")
+        )
+
+        # Prevent the game-over sound from playing more than once
+        # during the same game session.
+        self.game_over_sound_played = False
+
+    def _load_sound(self, sound_path):
+        try:
+            return pygame.mixer.Sound(sound_path)
+        except (pygame.error, FileNotFoundError):
+            print(f"Warning: Could not load sound: {sound_path}")
+            return None
+
+    def _play_sound(self, sound):
+        if sound is not None:
+            sound.play()
+
     def handle_event(self, event):
         if self.game_over:
             self._handle_results_input(event)
@@ -49,6 +88,7 @@ class GameEngine:
             return
 
         is_click = event.type == pygame.MOUSEBUTTONDOWN
+
         is_space = (
             event.type == pygame.KEYDOWN
             and event.key == pygame.K_SPACE
@@ -60,6 +100,10 @@ class GameEngine:
             if reaction_ms is not None:
                 self.reaction_times.append(reaction_ms)
 
+            elif self.round.false_start:
+                # Task 4: play the false-start sound once.
+                self._play_sound(self.false_start_sound)
+
             self.result_shown_at = pygame.time.get_ticks()
 
     def _handle_results_input(self, event):
@@ -67,6 +111,7 @@ class GameEngine:
             if event.key == pygame.K_SPACE:
                 self.game_over = False
                 self.difficulty_selection = True
+
             elif event.key == pygame.K_RETURN:
                 self.finished = True
 
@@ -80,8 +125,10 @@ class GameEngine:
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_1:
                 difficulty = "Easy"
+
             elif event.key == pygame.K_2:
                 difficulty = "Medium"
+
             elif event.key == pygame.K_3:
                 difficulty = "Hard"
 
@@ -91,8 +138,10 @@ class GameEngine:
             if 100 <= x <= 500:
                 if 100 <= y <= 160:
                     difficulty = "Easy"
+
                 elif 170 <= y <= 230:
                     difficulty = "Medium"
+
                 elif 240 <= y <= 300:
                     difficulty = "Hard"
 
@@ -125,6 +174,7 @@ class GameEngine:
         self.max_wait_ms = settings["max_wait"]
 
         self.reaction_times = []
+
         self.round = Round(
             self.min_wait_ms,
             self.max_wait_ms,
@@ -135,6 +185,9 @@ class GameEngine:
         self.difficulty_selection = False
         self.finished = False
 
+        # Allow the game-over sound to play again in the new session.
+        self.game_over_sound_played = False
+
     def handle_input(self):
         # Reserved for continuously-held-key input; every action here
         # is a discrete click/keypress, handled in handle_event.
@@ -144,7 +197,16 @@ class GameEngine:
         if self.game_over or self.difficulty_selection:
             return
 
+        # Save the state before updating the round so that the
+        # waiting -> go transition can be detected exactly once.
+        was_waiting = self.round.state == "waiting"
+
         self.round.update()
+
+        # Task 4: play the go sound only when the state actually
+        # changes from waiting to go.
+        if was_waiting and self.round.state == "go":
+            self._play_sound(self.go_sound)
 
         if self.round.state == "result":
             now = pygame.time.get_ticks()
@@ -155,6 +217,13 @@ class GameEngine:
     def _start_next_round(self):
         if len(self.reaction_times) >= self.rounds_total:
             self.game_over = True
+
+            # Task 4: play the game-over sound exactly once when
+            # the final results screen is reached.
+            if not self.game_over_sound_played:
+                self._play_sound(self.game_over_sound)
+                self.game_over_sound_played = True
+
             return
 
         self.round = Round(
@@ -182,9 +251,11 @@ class GameEngine:
         if self.round.state == "waiting":
             bg = GRAY
             message = "Wait for green..."
+
         elif self.round.state == "go":
             bg = GREEN
             message = "Click now!"
+
         else:
             bg = BLUE
             message = (
@@ -200,10 +271,18 @@ class GameEngine:
             True,
             WHITE,
         )
+
         text_rect = text_surf.get_rect(
-            center=(self.width // 2, self.height // 2)
+            center=(
+                self.width // 2,
+                self.height // 2,
+            )
         )
-        screen.blit(text_surf, text_rect)
+
+        screen.blit(
+            text_surf,
+            text_rect,
+        )
 
         round_num = min(
             len(self.reaction_times) + 1,
@@ -215,13 +294,18 @@ class GameEngine:
             True,
             WHITE,
         )
-        screen.blit(round_text, (10, 10))
+
+        screen.blit(
+            round_text,
+            (10, 10),
+        )
 
         avg_text = self.font.render(
             f"Avg: {self.average_reaction_ms()} ms",
             True,
             WHITE,
         )
+
         screen.blit(
             avg_text,
             (self.width - 190, 10),
@@ -235,10 +319,18 @@ class GameEngine:
             True,
             WHITE,
         )
+
         title_rect = title.get_rect(
-            center=(self.width // 2, 45)
+            center=(
+                self.width // 2,
+                45,
+            )
         )
-        screen.blit(title, title_rect)
+
+        screen.blit(
+            title,
+            title_rect,
+        )
 
         y = 90
 
@@ -251,7 +343,12 @@ class GameEngine:
                 True,
                 WHITE,
             )
-            screen.blit(reaction_text, (100, y))
+
+            screen.blit(
+                reaction_text,
+                (100, y),
+            )
+
             y += 35
 
         average_text = self.font.render(
@@ -259,30 +356,54 @@ class GameEngine:
             True,
             WHITE,
         )
+
         average_rect = average_text.get_rect(
-            center=(self.width // 2, 290)
+            center=(
+                self.width // 2,
+                290,
+            )
         )
-        screen.blit(average_text, average_rect)
+
+        screen.blit(
+            average_text,
+            average_rect,
+        )
 
         play_again_text = self.font.render(
             "Space / Click: Play Again",
             True,
             WHITE,
         )
+
         play_again_rect = play_again_text.get_rect(
-            center=(self.width // 2, 335)
+            center=(
+                self.width // 2,
+                335,
+            )
         )
-        screen.blit(play_again_text, play_again_rect)
+
+        screen.blit(
+            play_again_text,
+            play_again_rect,
+        )
 
         exit_text = self.font.render(
             "Enter: Exit",
             True,
             WHITE,
         )
+
         exit_rect = exit_text.get_rect(
-            center=(self.width // 2, 375)
+            center=(
+                self.width // 2,
+                375,
+            )
         )
-        screen.blit(exit_text, exit_rect)
+
+        screen.blit(
+            exit_text,
+            exit_rect,
+        )
 
     def _render_difficulty_selection(self, screen):
         screen.fill(BLUE)
@@ -292,10 +413,18 @@ class GameEngine:
             True,
             WHITE,
         )
+
         title_rect = title.get_rect(
-            center=(self.width // 2, 55)
+            center=(
+                self.width // 2,
+                55,
+            )
         )
-        screen.blit(title, title_rect)
+
+        screen.blit(
+            title,
+            title_rect,
+        )
 
         difficulties = [
             ("1 - Easy", "1500-3500 ms wait, 3 rounds"),
@@ -311,10 +440,18 @@ class GameEngine:
                 True,
                 WHITE,
             )
+
             name_rect = name_text.get_rect(
-                center=(self.width // 2, y)
+                center=(
+                    self.width // 2,
+                    y,
+                )
             )
-            screen.blit(name_text, name_rect)
+
+            screen.blit(
+                name_text,
+                name_rect,
+            )
 
             description_text = pygame.font.SysFont(
                 "Arial",
@@ -324,10 +461,18 @@ class GameEngine:
                 True,
                 WHITE,
             )
+
             description_rect = description_text.get_rect(
-                center=(self.width // 2, y + 30)
+                center=(
+                    self.width // 2,
+                    y + 30,
+                )
             )
-            screen.blit(description_text, description_rect)
+
+            screen.blit(
+                description_text,
+                description_rect,
+            )
 
             y += 70
 
@@ -339,7 +484,15 @@ class GameEngine:
             True,
             WHITE,
         )
+
         instruction_rect = instruction.get_rect(
-            center=(self.width // 2, 350)
+            center=(
+                self.width // 2,
+                350,
+            )
         )
-        screen.blit(instruction, instruction_rect)
+
+        screen.blit(
+            instruction,
+            instruction_rect,
+        )
