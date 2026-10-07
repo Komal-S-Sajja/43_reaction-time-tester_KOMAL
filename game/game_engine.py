@@ -9,6 +9,7 @@ GRAY = (90, 90, 90)
 GREEN = (40, 180, 90)
 BLUE = (50, 90, 170)
 
+
 class GameEngine:
     def __init__(self, width, height, rounds_total=5, min_wait_ms=1000, max_wait_ms=3000):
         self.width = width
@@ -31,11 +32,16 @@ class GameEngine:
     def handle_event(self, event):
         if self.game_over:
             return
+
         is_click = event.type == pygame.MOUSEBUTTONDOWN
         is_space = event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE
+
         if (is_click or is_space) and self.round.state != "result":
             reaction_ms = self.round.register_input()
-            self.reaction_times.append(reaction_ms)
+
+            if reaction_ms is not None:
+                self.reaction_times.append(reaction_ms)
+
             self.result_shown_at = pygame.time.get_ticks()
 
     def handle_input(self):
@@ -58,11 +64,13 @@ class GameEngine:
         if len(self.reaction_times) >= self.rounds_total:
             self.game_over = True
             return
+
         self.round = Round(self.min_wait_ms, self.max_wait_ms)
 
     def average_reaction_ms(self):
         if not self.reaction_times:
             return 0
+
         return round(sum(self.reaction_times) / len(self.reaction_times))
 
     def render(self, screen):
@@ -74,19 +82,29 @@ class GameEngine:
             message = "Click now!"
         else:
             bg = BLUE
-            message = f"{self.round.reaction_ms} ms"
+            message = (
+                "False start!"
+                if self.round.false_start
+                else f"{self.round.reaction_ms} ms"
+            )
 
         screen.fill(bg)
 
         text_surf = self.big_font.render(message, True, WHITE)
-        text_rect = text_surf.get_rect(center=(self.width // 2, self.height // 2))
+        text_rect = text_surf.get_rect(
+            center=(self.width // 2, self.height // 2)
+        )
         screen.blit(text_surf, text_rect)
 
         round_num = min(len(self.reaction_times) + 1, self.rounds_total)
-        round_text = self.font.render(f"Round {round_num}/{self.rounds_total}", True, WHITE)
+        round_text = self.font.render(
+            f"Round {round_num}/{self.rounds_total}", True, WHITE
+        )
         screen.blit(round_text, (10, 10))
 
-        avg_text = self.font.render(f"Avg: {self.average_reaction_ms()} ms", True, WHITE)
+        avg_text = self.font.render(
+            f"Avg: {self.average_reaction_ms()} ms", True, WHITE
+        )
         screen.blit(avg_text, (self.width - 190, 10))
 
         if self.game_over and not getattr(self, "_game_over_logged", False):
